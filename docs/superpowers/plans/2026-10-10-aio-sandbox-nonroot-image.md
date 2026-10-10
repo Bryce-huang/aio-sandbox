@@ -659,6 +659,18 @@ git commit -m "docs: add README for non-root aio-sandbox image
 Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ```
 
+**Post-review addendum (2026-10-10, Tasks 6-7):** 代码评审通过后、首次 CI 运行前落地如下变更(均已实现于 `.github/workflows/build-push.yml` 与 `README.md`,plan 正文保留原稿不改):
+
+(a) workflow 三处加固:
+1. 「Resolve upstream version」在 null/empty 守卫之后追加 tag 字符集守卫(`^[0-9A-Za-z._-]+$`)——GitHub 在 bash 解析前就把 `${{ }}` 展开进 run 脚本,漂移/恶意的 tag 否则可能从 `docker tag/push` 的双引号里逃逸;现在转为明确的 `::error::`。
+2. job 顶层(`permissions:` 后)加 `concurrency: {group: build-push, cancel-in-progress: false}`——串行化 weekly cron / dispatch / push,避免两个 run 竞争推送同名 tag。
+3. resolve 步骤的 curl 加 `-H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"`——认证后脱离 60 次/小时的匿名限额。
+
+(b) README 相对 plan 原文的已接受偏差:
+1. 新增「环境变量」小节(入口包装引入的唯一开关 `AIO_USER`),置于「用法」之后;
+2. 「已知限制」首条 bullet 扩写(uid 6000/6001 之外的 passwd 条目情况),并追加 root 模式下 supervisor control socket 权限的说明;
+3. 其余正文与 plan 嵌入内容一致。
+
 ---
 
 ### Task 8: 建 GitHub 仓库、推送、触发 CI 直到绿

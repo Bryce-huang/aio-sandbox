@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    concurrency:
+      group: build-push
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,9 +29,13 @@ jobs:
       - name: Resolve upstream version
         id: upstream
         run: |
-          VER="$(curl -fsSL https://api.github.com/repos/agent-infra/sandbox/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+          VER="$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/agent-infra/sandbox/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
           if [ -z "$VER" ] || [ "$VER" = "null" ]; then
             echo "::error::failed to resolve upstream release tag"
+            exit 1
+          fi
+          if ! [[ "$VER" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "::error::unexpected upstream tag format: ${VER}"
             exit 1
           fi
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
