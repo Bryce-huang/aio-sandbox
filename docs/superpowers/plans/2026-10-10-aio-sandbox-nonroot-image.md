@@ -208,6 +208,12 @@ log "all patches applied"
 
 注意:`apply` 的 expr 都是单引号字符串,`&`(整匹配)与 `\|\|`(sed RHS 转义)都按 BRE 语义工作;唯一含单引号的 expr(su 补丁第二条)用 `"'"'"'` 拼接。
 
+> **Post-review addendum (2026-10-10)**:评审后在 Task 1 Step 1 的脚本里追加了三处 apply:
+> 1. `chown "root:${USER}" "${tmp_config}"` + `chmod 640 "${tmp_config}"`(`write_browser_supervisor_config`,gem.sh:376-377)——非 root uid 下 `set -e` 会因 EPERM 直接中止启动;root 模式不受影响(均成功),跨模式重启由 gem_init.sh 的 `rm -f` 清理兜底。
+> 2. `chmod 1777 /tmp/.X11-unix`(gem.sh:491)——原补丁只覆盖了 489/492 两行;/tmp/.X11-unix 若以 root 属主残留(同一容器 restart),被容忍的 `rm -rf` 删不掉 → mkdir 变 no-op → 此处 chmod EPERM 中止。
+> 3. X11 `rm -rf` 的 expr 改为整行精确匹配(`# Clean stale sockets on restart` 尾注)——上游漂移时响亮失败,而不是静默拼接进已变化的行。
+> 这些新增使 gem.sh 的 `2>/dev/null || true` 断言计数从 41 变为 **44**(上游已有 21 行 + 原 20 处 + 新增 3 处)。
+
 - [ ] **Step 2: 语法检查**
 
 Run: `bash -n docker/patch-entrypoints.sh`
@@ -244,10 +250,13 @@ Run:
 ```bash
 set -e
 T=/tmp/aio-test-gem
-# gem.sh: 20 处容忍补丁(su 前缀补丁含 || 无关)
-[ "$(grep -c '2>/dev/null || true' $T/gem.sh)" -eq 20 ]
-grep -q  'if [ "$(id -u)" != "${USER_UID}" ]; then su - $USER -c' $T/gem.sh
+# gem.sh: 44 = 上游已有 21 行 + 20 处容忍补丁 + 评审新增 3 处(tmp_config chown/chmod、X11 chmod)
+[ "$(grep -c '2>/dev/null || true' $T/gem.sh)" -eq 44 ]
+grep -qF 'if [ "$(id -u)" != "${USER_UID}" ]; then su - $USER -c' $T/gem.sh
 grep -q  'bash -s"; else bash -s; fi << .EOF.' $T/gem.sh
+grep -qF 'chown "root:${USER}" "${tmp_config}" 2>/dev/null || true' $T/gem.sh
+grep -qF 'chmod 640 "${tmp_config}" 2>/dev/null || true' $T/gem.sh
+grep -qF 'chmod 1777 /tmp/.X11-unix 2>/dev/null || true' $T/gem.sh
 grep -q  'chmod 750 "${RUN_DIR}" 2>/dev/null || true' $T/gem_init.sh
 # supervisord 两份配置
 for C in $T/supervisord.conf /tmp/aio-test-gem-etc-supervisord.conf; do :; done
@@ -270,7 +279,7 @@ Expected: 末行输出 `ALL-ASSERTIONS-OK`
 Run:
 ```bash
 bash docker/patch-entrypoints.sh /tmp/aio-test-gem && \
-[ "$(grep -c '2>/dev/null || true' /tmp/aio-test-gem/gem.sh)" -eq 20 ] && \
+[ "$(grep -c '2>/dev/null || true' /tmp/aio-test-gem/gem.sh)" -eq 44 ] && \
 bash -n /tmp/aio-test-gem/gem.sh && echo IDEMPOTENT-OK
 ```
 Expected: 全部行打印 `= already patched` / `= already absent`,末行 `IDEMPOTENT-OK`
@@ -281,7 +290,7 @@ Run:
 ```bash
 grep -rn 'su - \$USER -c\|/var/run/supervisor\|/var/run/supervisord\|user=root' /tmp/aio-test-gem/ | grep -v '\.bak' || echo NO-STALE-REFS
 ```
-Expected: `NO-STALE-REFS`(gem.sh 中 su 调用已被 if 包裹,grep 仍会命中 `su - $USER -c` 一次——命中行应以 `if [ "$(id -u)"` 开头;若输出只有这一行也算通过,人工确认即可)
+Expected: `NO-STALE-REFS`(gem.sh 中 su 调用已被 if 包裹,grep 仍会命中 `su - $USER -c` 一次——命中行以 `  export …; if [ "$(id -u)"` 形式开头(行首是 export,if 在同一行内);若输出只有这一行也算通过,人工确认即可)
 
 - [ ] **Step 5: 提交(若 Step 2-4 有脚本修正则一并提交)**
 

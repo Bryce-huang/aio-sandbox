@@ -69,6 +69,17 @@ apply "$GEM_DIR/gem.sh" \
   'chmod 750 "${RUN_DIR}" 2>/dev/null' \
   's|chmod 750 "${RUN_DIR}"$|& 2>/dev/null \|\| true|'
 
+# browser supervisor config tmp file (write_browser_supervisor_config):
+# same root-owned parent; chown/chmod as non-root must not abort the boot.
+# Root mode unchanged (both succeed as root); cross-mode restarts are
+# covered by gem_init.sh's `rm -f` of the stale config.
+apply "$GEM_DIR/gem.sh" \
+  'chown "root:${USER}" "${tmp_config}" 2>/dev/null' \
+  's|chown "root:\${USER}" "\${tmp_config}"$|& 2>/dev/null \|\| true|'
+apply "$GEM_DIR/gem.sh" \
+  'chmod 640 "${tmp_config}" 2>/dev/null' \
+  's|chmod 640 "\${tmp_config}"$|& 2>/dev/null \|\| true|'
+
 # setup_xdg_runtime_dir
 apply "$GEM_DIR/gem.sh" \
   'chown $USER:$USER "$XDG_RUNTIME_DIR" 2>/dev/null' \
@@ -77,10 +88,18 @@ apply "$GEM_DIR/gem.sh" \
   'chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null' \
   's|chmod 700 "\$XDG_RUNTIME_DIR"$|& 2>/dev/null \|\| true|'
 
-# X11 socket dir cleanup (sticky /tmp forbids deleting root-owned dirs)
+# X11 socket dir cleanup (sticky /tmp forbids deleting root-owned dirs).
+# The rm expr exact-matches the known full line so upstream drift fails
+# loud instead of silently splicing into a changed line.
 apply "$GEM_DIR/gem.sh" \
   'rm -rf /tmp/.X11-unix 2>/dev/null' \
-  's|^rm -rf /tmp/.X11-unix|rm -rf /tmp/.X11-unix 2>/dev/null \|\| true|'
+  's|^rm -rf /tmp/.X11-unix  # Clean stale sockets on restart$|rm -rf /tmp/.X11-unix 2>/dev/null \|\| true  # Clean stale sockets on restart|'
+# If /tmp/.X11-unix pre-exists root-owned (docker restart on the same
+# container), the tolerated rm cannot remove it; mkdir is then a no-op and
+# this chmod would EPERM-abort without the guard.
+apply "$GEM_DIR/gem.sh" \
+  'chmod 1777 /tmp/.X11-unix 2>/dev/null' \
+  's|^chmod 1777 /tmp/.X11-unix$|& 2>/dev/null \|\| true|'
 apply "$GEM_DIR/gem.sh" \
   'chown $USER /tmp/.X11-unix/ 2>/dev/null' \
   's|chown \$USER /tmp/.X11-unix/$|& 2>/dev/null \|\| true|'
