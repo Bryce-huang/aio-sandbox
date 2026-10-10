@@ -154,6 +154,31 @@ apply "$GEM_DIR/gem.sh" \
   'chown -R $USER:$USER /opt/jupyter 2>/dev/null' \
   's|chown -R \$USER:\$USER /opt/jupyter$|& 2>/dev/null \|\| true|'
 
+# ---------------- browser-supervisor.py ----------------
+# Started directly by gem_init.sh as the container uid; two root-only
+# operations make it crash-loop as non-root (Popen re-raises preexec
+# failures in the parent, so the launch loop retries forever and the
+# browser silently never comes up).
+
+# drop_privileges: as uid 6000/6001 the demote() preexec would
+# setgroups(2) without CAP_SETGID (EPERM). Already unprivileged means
+# there is nothing to drop: return None -> preexec_fn=None (subprocess
+# default) and Chrome runs as the current uid. Root mode unchanged.
+apply "$GEM_DIR/browser-supervisor.py" \
+  'os.geteuid() != 0' \
+  '/^    def demote() -> None:$/i\
+    if os.geteuid() != 0:\
+        return None'
+
+# write_pid_file: chown to uid 0 (root:gid) is EPERM as non-root. Skip
+# under non-root — the tmp file already belongs to the current user.
+# Root mode unchanged.
+apply "$GEM_DIR/browser-supervisor.py" \
+  'os.geteuid() == 0' \
+  '/^    os.chown(tmp_path, 0, gid)$/c\
+    if os.geteuid() == 0:\
+        os.chown(tmp_path, 0, gid)'
+
 # user-setup payload: `su - $USER -c` hangs when a non-root user su's to
 # itself (PAM password prompt). Export the payload env, then run directly
 # when the current uid already is the target uid; keep `su` otherwise so

@@ -76,7 +76,7 @@ jobs:
             ${{ env.IMAGE }}:ci
           ok=0
           for i in $(seq 1 60); do
-            if curl -fsS -o /dev/null http://localhost:8080/v1/docs; then
+            if curl -fsS --max-time 5 -o /dev/null http://localhost:8080/v1/docs; then
               ok=1
               echo "sandbox ready after ~$((i * 5))s (as uid 6001)"
               docker exec smoke test -w /run/user/6001 || { echo "::error::/run/user/6001 not writable for uid 6001"; exit 1; }
@@ -87,6 +87,21 @@ jobs:
           if [ "$ok" != "1" ]; then
             echo "::error::smoke test failed: sandbox not ready within 300s as uid 6001"
             docker logs smoke 2>&1 | tail -150
+            exit 1
+          fi
+          browser_ok=0
+          for i in $(seq 1 36); do
+            if docker exec smoke python3 -c "import urllib.request as u; u.urlopen('http://127.0.0.1:9222/json/version', timeout=3)" 2>/dev/null; then
+              browser_ok=1
+              echo "browser CDP ready after ~$((i * 5))s"
+              break
+            fi
+            sleep 5
+          done
+          if [ "$browser_ok" != "1" ]; then
+            echo "::error::browser CDP not ready within 180s as uid 6001"
+            docker exec smoke sh -c 'tail -80 /var/log/gem/browser-supervisor.log' || true
+            docker logs smoke 2>&1 | tail -80
             exit 1
           fi
 

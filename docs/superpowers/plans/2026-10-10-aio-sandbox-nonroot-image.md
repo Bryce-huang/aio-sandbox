@@ -671,6 +671,18 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 2. 「已知限制」首条 bullet 扩写(uid 6000/6001 之外的 passwd 条目情况),并追加 root 模式下 supervisor control socket 权限的说明;
 3. 其余正文与 plan 嵌入内容一致。
 
+**Post-review addendum 2 (2026-10-10, final review):** 终审发现一处 Critical(非 root 下浏览器永远起不来)并补充冒烟/构建卫生,均在首次 CI 前落地:
+
+(a) `browser-supervisor.py` 两处补丁(加入 patch-entrypoints.sh 的 GEM_DIR 段;该文件由 gem_init.sh 直接以容器 uid 启动,其中 `preexec_fn=drop_privileges(...)` 无条件执行——preexec 失败会在父进程重抛,launch 循环无限重试,浏览器静默起不来):
+1. `drop_privileges` 在 `os.geteuid() != 0` 时提前 `return None` → `preexec_fn=None`,Chrome 以当前 uid 运行;非 root 下 `os.initgroups/setgid/setuid` 的 setgroups(2) 会因无 CAP_SETGID 而 EPERM。root 模式不变。
+2. `write_pid_file` 的 `os.chown(tmp_path, 0, gid)`(chown 到 uid 0)改为仅 `os.geteuid() == 0` 时执行;非 root 下该文件本就属于当前用户。root 模式不变。
+
+(b) workflow 冒烟加固:现有 `/v1/docs` curl 加 `--max-time 5`(防止连接打开但不应答把循环拖过 300s);ready 块之后新增浏览器 CDP 轮询(36×5s=180s,`docker exec` 继承 `--user 6001`,访问容器内 `127.0.0.1:9222/json/version`),失败时打印 browser-supervisor.log 与容器日志尾部并 `::error::` 退出——证明浏览器真的起来了,而不只是 API 就绪。
+
+(c) 新增 `.dockerignore`(`.git`、`docs/`、`README.md`)——保持构建上下文最小,避免文档/版本库内容进入镜像层。
+
+(d) 补记此前未文档化的既有实现(M3):patch-entrypoints.sh 对 `/etc/supervisord.conf` 有 sandbox 判定守卫(`grep -qE 'unix:///var/run/(gem/)?supervisor\.sock'`),非 sandbox 镜像的 supervisord.conf 会被跳过、不误改。
+
 ---
 
 ### Task 8: 建 GitHub 仓库、推送、触发 CI 直到绿
