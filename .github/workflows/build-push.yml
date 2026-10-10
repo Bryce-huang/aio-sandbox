@@ -105,6 +105,33 @@ jobs:
             exit 1
           fi
 
+      - name: Collect failure diagnostics
+        if: failure()
+        run: |
+          set +e
+          echo "=== container state ==="
+          docker ps -a --filter name=smoke --format '{{.Status}}'
+          echo "=== nginx stderr (supervisord nginx-error.log) ==="
+          docker exec smoke sh -c 'tail -60 /var/log/gem/nginx-error.log' || true
+          echo "=== nginx stdout (nginx-wait.sh loop messages) ==="
+          docker exec smoke sh -c 'tail -40 /var/log/gem/nginx-access.log' || true
+          echo "=== nginx -t config test ==="
+          docker exec smoke /usr/sbin/nginx -t -c /opt/gem/nginx.conf 2>&1 || true
+          echo "=== rendered nginx confs ==="
+          docker exec smoke sh -c 'echo "--- server-active:"; cat /opt/gem/nginx-server-active.conf; echo "--- proxy-map:"; cat /opt/gem/nginx-proxy-map.conf; echo "--- nginx/ dir:"; ls -la /opt/gem/nginx/' || true
+          echo "=== pid/runtime dirs ==="
+          docker exec smoke sh -c 'ls -la /var/run/gem/ /var/lib/aio-sandbox/nginx/; id' || true
+          echo "=== browser-supervisor log ==="
+          docker exec smoke sh -c 'tail -40 /var/log/gem/browser-supervisor.log' || true
+          echo "=== CDP probe ==="
+          docker exec smoke python3 -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:9222/json/version', timeout=3).status)" || true
+          echo "=== listening ports ==="
+          docker exec smoke sh -c 'ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null || cat /proc/net/tcp' || true
+          echo "=== entrypoint env ==="
+          docker exec smoke sh -c 'tr "\0" "\n" < /proc/1/environ | grep -E "^(WAIT_|.*PORT|.*LISTEN|USER|HOME|LOG_DIR)" | sort' || true
+          echo "=== docker logs (tail) ==="
+          docker logs smoke 2>&1 | tail -40 || true
+
       - name: Push latest + version-date tags
         run: |
           docker tag "$IMAGE:ci" "$IMAGE:latest"
