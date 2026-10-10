@@ -683,6 +683,11 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 (d) 补记此前未文档化的既有实现(M3):patch-entrypoints.sh 对 `/etc/supervisord.conf` 有 sandbox 判定守卫(`grep -qE 'unix:///var/run/(gem/)?supervisor\.sock'`),非 sandbox 镜像的 supervisord.conf 会被跳过、不误改。
 
+**Post-review addendum 3 (2026-10-10, CI smoke round 1):** CI run 38023201493 冒烟失败,诊断步骤(commit ad85cf7)拿到实锤:nginx 配置加载后重开日志时以编译期默认主级路径 `/var/log/nginx/error.log`(root-owned 目录)写 error log → `[emerg] open() ... (13: Permission denied)` → supervisord 5 次重试后 FATAL;/v1/docs 永不就绪。修复(仅此,无投机改动):
+1. patch-entrypoints.sh 新增 nginx.conf 主级 `error_log /dev/stderr;`(插在 `user nobody root;` 前,marker `aio-nonroot: main-level error log`;http 块内既有的 `error_log /dev/stderr;` 不作 marker 以免误判已打)。root 模式等价(本就走 stderr)。
+2. nonroot-compat.sh 预建 `/var/log/nginx` 0777(兜底任何对发行版日志目录的现在/将来引用)。
+诊断步骤永久保留(`if: failure()`),每次冒烟失败自动抓取 nginx emerg/渲染 conf/运行时目录/CDP 等证据。同一次运行亦验证了 addendum 2 的浏览器 Critical 修复:uid 6001 下 "Chromium ready on 127.0.0.1:9222, pid=326"、CDP probe 200,supervisord pid/sock 均为 app 属主落位 /var/run/gem。
+
 ---
 
 ### Task 8: 建 GitHub 仓库、推送、触发 CI 直到绿

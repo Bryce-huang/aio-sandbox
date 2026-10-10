@@ -38,6 +38,7 @@ create_user app 6001
 # --- runtime dirs that stock scripts create as root ---
 install -d -m 0777 /var/run/gem
 install -d -m 1777 /var/log/gem
+install -d -m 0777 /var/log/nginx
 install -d -m 0777 /var/lib/aio-sandbox
 install -d -m 0777 /var/lib/aio-sandbox/nginx
 for d in body proxy fastcgi scgi uwsgi; do

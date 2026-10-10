@@ -228,4 +228,15 @@ apply "$GEM_DIR/nginx.conf" \
   'pid /var/run/gem/nginx.pid;' \
   's|^pid /var/run/nginx.pid;$|pid /var/run/gem/nginx.pid;|'
 
+# CI-diagnosed (run 38023201493): error_log is only set inside the http
+# block, so nginx re-opens the compile-time default /var/log/nginx/error.log
+# at main level — root-owned dir, EPERM as uid 6000/6001 -> emerg + crash
+# loop. Pin the main-level log to stderr; root mode equivalent (stderr).
+apply "$GEM_DIR/nginx.conf" \
+  'aio-nonroot: main-level error log' \
+  '/^user nobody root;$/c\
+# aio-nonroot: main-level error log (default /var/log/nginx/error.log unwritable for non-root)\
+error_log /dev/stderr;\
+user nobody root;'
+
 log "all patches applied"
