@@ -22,4 +22,4 @@ if [ "${CUR_UID}" != "0" ]; then
   export HOME="/home/${USER}"
 fi
 
-exec /opt/gem/run.sh
+exec /opt/gem/run.sh "$@"
